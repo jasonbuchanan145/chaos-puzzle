@@ -22,3 +22,11 @@ version: 0.1.0
 # follow Semantic Versioning. They should reflect the version the application is using.
 # It is recommended to use it with quotes.
 appVersion: "v0.1.0"
+
+dependencies:
+  - name: chaos-mesh
+    version: "2.6.0"
+    repository: https://charts.chaos-mesh.org
+    condition: chaos.chaosMesh.enabled
+    tags:
+      - chaos-engineering
