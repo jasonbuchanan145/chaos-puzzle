@@ -1,64 +1,39 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-# Default values for onlineboutique.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
 images:
   repository: us-central1-docker.pkg.dev/google-samples/microservices-demo
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
-
+  tag: ''
 serviceAccounts:
-  # Specifies whether service accounts should be created.
   create: true
-  # Annotations to add to the service accounts.
   annotations: {}
-  # Annotations to add only for the cartservice app. This allows to follow the least privilege principle where only cartservice needs to connect to external database for example via Workload Identity.
   annotationsOnlyForCartservice: false
-
 networkPolicies:
-  # Specifies if the NetworkPolicies are created or not. If true, one fine granular NetworkPolicy per app is created.
   create: false
-
 sidecars:
-  # Specifies if the Sidecars are created or not. If true, one fine granular Sidecar per app is created.
   create: false
-
 authorizationPolicies:
-  # Specifies if the AuthorizationPolicies are created or not. If true, one fine granular AuthorizationPolicy per app is created.
   create: false
-
 opentelemetryCollector:
-  create: false
-  name: opentelemetrycollector
-  # Specifies the project id for the otel collector. If set as "PROJECT_ID" (default value), an initContainer will automatically retrieve the project id value from the metadata server.
-  projectId: "PROJECT_ID"
+  create: true
+  name: opentelemetry-collector
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: 0.104.0
+  opensearch:
+    endpoints:
+      - "http://opensearch:9200"
+    tlsInsecure: true
+    tracesIndex: "otel-v1-apm-span"
+    serviceMapEnabled: true
+    serviceMapIndex: "otel-v1-apm-service-map"
 
 googleCloudOperations:
   profiler: false
-  tracing: false
-  metrics: false
-
+  tracing: true
+  metrics: true
 seccompProfile:
   enable: false
   type: RuntimeDefault
-
 securityContext:
   enable: true
-
 adService:
   create: true
   name: adservice
@@ -69,7 +44,7 @@ adService:
     limits:
       cpu: 300m
       memory: 300Mi
-
+  replicas: 0
 cartService:
   create: true
   name: cartservice
@@ -80,7 +55,9 @@ cartService:
     limits:
       cpu: 300m
       memory: 256Mi
-
+  replicas: 1
+  otel:
+    enabled: true
 checkoutService:
   create: true
   name: checkoutservice
@@ -91,7 +68,9 @@ checkoutService:
     limits:
       cpu: 200m
       memory: 128Mi
-
+  replicas: 1
+  otel:
+    enabled: true
 currencyService:
   create: true
   name: currencyservice
@@ -102,7 +81,7 @@ currencyService:
     limits:
       cpu: 200m
       memory: 256Mi
-
+  replicas: 0
 emailService:
   create: true
   name: emailservice
@@ -113,19 +92,18 @@ emailService:
     limits:
       cpu: 200m
       memory: 128Mi
-
+  replicas: 0
 frontend:
   create: true
   name: frontend
   externalService: true
   cymbalBranding: false
-  # One of: local, gcp, aws, azure, onprem, alibaba. When not set, defaults to "local" unless running in GKE, otherwise auto-sets to gcp.
   platform: local
   singleSharedSession: false
   virtualService:
     create: false
     hosts:
-    - "*"
+      - '*'
     gateway:
       name: asm-ingressgateway
       namespace: asm-ingress
@@ -138,7 +116,9 @@ frontend:
     limits:
       cpu: 200m
       memory: 128Mi
-
+  replicas: 1
+  otel:
+    enabled: true
 loadGenerator:
   create: true
   name: loadgenerator
@@ -150,7 +130,9 @@ loadGenerator:
     limits:
       cpu: 500m
       memory: 512Mi
-
+  replicas: 1
+  otel:
+    enabled: true
 paymentService:
   create: true
   name: paymentservice
@@ -161,12 +143,13 @@ paymentService:
     limits:
       cpu: 200m
       memory: 256Mi
-
+  replicas: 1
+  otel:
+    enabled: true
 productCatalogService:
   create: true
   name: productcatalogservice
-  # Specifies an extra latency to any request on productcatalogservice, by default no extra latency.
-  extraLatency: ""
+  extraLatency: ''
   resources:
     requests:
       cpu: 100m
@@ -174,7 +157,9 @@ productCatalogService:
     limits:
       cpu: 200m
       memory: 128Mi
-
+  replicas: 1
+  otel:
+    enabled: true
 recommendationService:
   create: true
   name: recommendationservice
@@ -185,7 +170,7 @@ recommendationService:
     limits:
       cpu: 200m
       memory: 450Mi
-
+  replicas: 0
 shippingService:
   create: true
   name: shippingservice
@@ -196,27 +181,128 @@ shippingService:
     limits:
       cpu: 200m
       memory: 128Mi
-
+  replicas: 1
+  otel:
+    enabled: true
 cartDatabase:
-  # Specifies the type of the cartservice's database, could be either redis or spanner.
   type: redis
-  connectionString: "redis-cart:6379"
+  connectionString: redis-cart:6379
   inClusterRedis:
     create: true
     name: redis-cart
-    # Uses the public redis image from Docker Hub, otherwise will use the images.repository.
     publicRepository: true
+    replicas: 1
   externalRedisTlsOrigination:
     enable: false
     name: exernal-redis-tls-origination
-    endpointAddress: ""
-    endpointPort: ""
-    certificate: ""
+    endpointAddress: ''
+    endpointPort: ''
+    certificate: ''
+dataprepper:
+  enableDefaultPipelines: false        # keep the demo pipeline OFF
+  pipelineConfig:
+    enabled: true
+    config:
+      otel-traces:
+        workers: 2
+        source:
+          otel_trace_source:
+            ssl: false
+            port: 21890               # OTLP gRPC from the OTel Collector
+        buffer:
+          bounded_blocking:
+            buffer_size: 1024
+            batch_size: 256
+        sink:
+          - opensearch:
+              hosts: ["http://opensearch-cluster-master:9200"]
+              index_type: trace-analytics-raw
+          - opensearch:
+              hosts: ["http://opensearch-cluster-master:9200"]
+              index_type: trace-analytics-service-map
 
-chaos:
-  enabled: false
-# @TODO: This service is not currently available in Helm.
-# https://github.com/GoogleCloudPlatform/microservices-demo/tree/main/kustomize/components/shopping-assistant
+
+
+
+otel:
+  mode: deployment
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.135.0"
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch: {}
+    exporters:
+      otlp:
+        endpoint: data-prepper:21890
+        tls:
+          insecure: true
+      debug:
+        verbosity: normal
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp, debug]
 shoppingAssistantService:
   create: false
   name: shoppingassistantservice
+observability:
+  enabled: true
+  opensearch:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  logstash:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 200m
+        memory: 1Gi
+  dashboards:
+    enabled: true
+os:
+  singleNode: true
+  replicas: 1
+  extraEnvs:
+    - name: "DISABLE_INSTALL_DEMO_CONFIG"
+      value: "true"
+    - name: "DISABLE_SECURITY_PLUGIN"
+      value: "true"
+  opensearchJavaOpts: "-Xms512m -Xmx512m"
+  # these ensure it listens and service wiring is correct
+  config:
+    opensearch.yml: |
+      cluster.name: failure-puzzle
+      discovery.type: single-node
+      network.host: 0.0.0.0
+      http.port: 9200
+      plugins.security.disabled: true
+      bootstrap.memory_lock: false
+
+osd:
+  opensearchHosts: "http://os-opensearch:9200"
+  extraEnvs:
+    - name: DISABLE_SECURITY_DASHBOARDS_PLUGIN
+      value: "true"
+  service:
+    type: LoadBalancer
+

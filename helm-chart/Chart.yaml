@@ -36,12 +36,17 @@ version: 0.11.0
 # follow Semantic Versioning. They should reflect the version the application is using.
 # It is recommended to use it with quotes.
 appVersion: "v0.10.3"
-
-# Chart dependencies for failure puzzle functionality
 dependencies:
-  - name: chaos-mesh
-    version: "2.6.0"
-    repository: https://charts.chaos-mesh.org
-    condition: chaos.chaosMesh.enabled
-    tags:
-      - chaos-engineering
+  - name: data-prepper
+    version: "0.3.1"
+    repository: "https://opensearch-project.github.io/helm-charts"
+    alias: dataprepper
+  - name: opensearch
+    version: "3.2.1"
+    repository: "https://opensearch-project.github.io/helm-charts"
+    alias: os
+  - name: opensearch-dashboards
+    version: "3.2.1"
+    repository: "https://opensearch-project.github.io/helm-charts"
+    alias: osd
+

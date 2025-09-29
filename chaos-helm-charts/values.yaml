@@ -1,0 +1,29 @@
+chaos-mesh:
+  chaosDaemon:
+    runtime: containerd
+    socketPath: /run/containerd/containerd.sock
+  controllerManager:
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  dashboard:
+    create: false
+chaos:
+  enabled: false
+  chaosMesh:
+    enabled: false
+    namespace: chaos-mesh
+    createNamespace: true
+  schedule:
+    baselineDuration: 5m
+    failureDuration: 5m
+  cartServiceDelay:
+    enabled: true
+    delay: 50ms
+  redisFailure:
+    enabled: true
+    failureRate: 0.5
