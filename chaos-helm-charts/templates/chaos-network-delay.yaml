@@ -1,0 +1,18 @@
+{{- if .Values.chaos.enabled }}
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: productcatalog-latency
+  namespace: {{ .Release.Namespace }}
+spec:
+  action: delay
+  mode: all
+  selector:
+    namespaces: [ "{{ .Release.Namespace }}" ]
+    labelSelectors:
+      app: productcatalogservice
+  delay:
+    latency: "300ms"
+    jitter: "50ms"
+  duration: "10m"
+{{- end }}

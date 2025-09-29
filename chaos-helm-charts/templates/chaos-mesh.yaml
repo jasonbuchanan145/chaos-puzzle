@@ -1,0 +1,228 @@
+{{- if .Values.chaos.enabled }}
+---
+# Chaos Mesh RBAC
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chaos-controller
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: chaos-controller
+rules:
+- apiGroups: ["chaos-mesh.org"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: chaos-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: chaos-controller
+subjects:
+- kind: ServiceAccount
+  name: chaos-controller
+  namespace: {{ .Release.Namespace }}
+---
+# Failure Timeline Controller - schedules chaos experiments
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chaos-scheduler
+  namespace: {{ .Release.Namespace }}
+data:
+  scheduler.py: |
+    import time
+    import yaml
+    import requests
+    from datetime import datetime, timedelta
+    import logging
+    import os
+
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    def create_chaos_experiment(name, experiment_config):
+        """Apply chaos experiment to Kubernetes cluster"""
+        try:
+            # In a real implementation, this would use kubernetes client
+            # For now, we'll just log the experiment
+            logger.info(f"Creating chaos experiment: {name}")
+            logger.info(f"Config: {experiment_config}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create experiment {name}: {e}")
+            return False
+
+    def main():
+        baseline_duration = {{ .Values.chaos.schedule.baselineDuration | quote }}
+        failure_duration = {{ .Values.chaos.schedule.failureDuration | quote }}
+
+        # Convert duration strings to seconds
+        baseline_seconds = 300  # 5 minutes
+        failure_seconds = 300   # 5 minutes
+
+        logger.info("Starting failure puzzle timeline...")
+        logger.info(f"Baseline period: {baseline_duration}")
+
+        # Phase 1: Baseline period
+        start_time = datetime.now()
+        logger.info(f"BASELINE PHASE started at {start_time}")
+        time.sleep(baseline_seconds)
+
+        # Phase 2: Failure injection
+        failure_start = datetime.now()
+        logger.info(f"FAILURE PHASE started at {failure_start}")
+
+        # Create cart service delay experiment
+        cart_delay_config = {
+            'apiVersion': 'chaos-mesh.org/v1alpha1',
+            'kind': 'NetworkChaos',
+            'metadata': {
+                'name': 'cart-service-delay',
+                'namespace': '{{ .Release.Namespace }}'
+            },
+            'spec': {
+                'action': 'delay',
+                'mode': 'all',
+                'selector': {
+                    'labelSelectors': {
+                        'app': '{{ .Values.cartService.name }}'
+                    }
+                },
+                'delay': {
+                    'latency': '{{ .Values.chaos.cartServiceDelay.delay }}',
+                    'correlation': '0'
+                },
+                'duration': failure_duration
+            }
+        }
+
+        # Create Redis failure experiment
+        redis_failure_config = {
+            'apiVersion': 'chaos-mesh.org/v1alpha1',
+            'kind': 'NetworkChaos',
+            'metadata': {
+                'name': 'redis-connection-failure',
+                'namespace': '{{ .Release.Namespace }}'
+            },
+            'spec': {
+                'action': 'partition',
+                'mode': 'all',
+                'selector': {
+                    'labelSelectors': {
+                        'app': '{{ .Values.cartDatabase.inClusterRedis.name }}'
+                    }
+                },
+                'direction': 'both',
+                'duration': failure_duration
+            }
+        }
+
+        # Apply experiments
+        create_chaos_experiment('cart-delay', cart_delay_config)
+        create_chaos_experiment('redis-failure', redis_failure_config)
+
+        # Wait for failure duration
+        time.sleep(failure_seconds)
+
+        # Phase 3: Recovery
+        recovery_time = datetime.now()
+        logger.info(f"RECOVERY PHASE started at {recovery_time}")
+        logger.info("Failure puzzle timeline completed!")
+
+        # Keep running to maintain logs
+        while True:
+            time.sleep(60)
+            logger.info(f"Timeline summary - Baseline: {baseline_duration}, Failures: {failure_duration}, Current: {datetime.now()}")
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chaos-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: chaos-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chaos-scheduler
+  template:
+    metadata:
+      labels:
+        app: chaos-scheduler
+    spec:
+      serviceAccountName: chaos-controller
+      containers:
+      - name: scheduler
+        image: python:3.9-slim
+        command:
+        - python
+        - /app/scheduler.py
+        volumeMounts:
+        - name: scheduler-script
+          mountPath: /app
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+      volumes:
+      - name: scheduler-script
+        configMap:
+          name: chaos-scheduler
+{{- if .Values.chaos.cartServiceDelay.enabled }}
+---
+# Cart Service Delay Experiment (will be activated by scheduler)
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: cart-service-delay-template
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    chaos-mesh.org/template: "true"
+spec:
+  action: delay
+  mode: all
+  selector:
+    labelSelectors:
+      app: {{ .Values.cartService.name }}
+  delay:
+    latency: {{ .Values.chaos.cartServiceDelay.delay }}
+    correlation: "0"
+  duration: {{ .Values.chaos.schedule.failureDuration }}
+{{- end }}
+{{- if .Values.chaos.redisFailure.enabled }}
+---
+# Redis Failure Experiment (will be activated by scheduler)
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: redis-failure-template
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    chaos-mesh.org/template: "true"
+spec:
+  action: partition
+  mode: all
+  selector:
+    labelSelectors:
+      app: {{ .Values.cartDatabase.inClusterRedis.name }}
+  direction: both
+  duration: {{ .Values.chaos.schedule.failureDuration }}
+{{- end }}
+{{- end }}

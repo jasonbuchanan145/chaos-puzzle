@@ -33,6 +33,7 @@ metadata:
   labels:
     app: {{ .Values.cartService.name }}
 spec:
+  replicas: {{ .Values.cartService.replicas | default 1 }}
   selector:
     matchLabels:
       app: {{ .Values.cartService.name }}
@@ -83,6 +84,24 @@ spec:
         - name: REDIS_ADDR
         {{- end }}
           value: {{ .Values.cartDatabase.connectionString | quote }}
+        {{- if .Values.cartService.otel.enabled }}
+        # OpenTelemetry Configuration
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://{{ .Values.opentelemetryCollector.name }}:4318"
+        - name: OTEL_SERVICE_NAME
+          value: {{ .Values.cartService.name }}
+        - name: OTEL_SERVICE_VERSION
+          value: {{ .Chart.AppVersion }}
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: "service.name={{ .Values.cartService.name }},service.version={{ .Chart.AppVersion }},deployment.environment=failure-puzzle"
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: "http/protobuf"
+        # Failure Puzzle specific
+        - name: ENABLE_CORRELATION_IDS
+          value: "true"
+        - name: LOG_LEVEL
+          value: "info"
+        {{- end }}
         resources:
           {{- toYaml .Values.cartService.resources | nindent 10 }}
         readinessProbe:
@@ -217,7 +236,10 @@ kind: Deployment
 metadata:
   name: {{ .Values.cartDatabase.inClusterRedis.name }}
   namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.cartDatabase.inClusterRedis.name }}
 spec:
+  replicas: {{ .Values.cartDatabase.inClusterRedis.replicas | default 1 }}
   selector:
     matchLabels:
       app: {{ .Values.cartDatabase.inClusterRedis.name }}
@@ -225,6 +247,9 @@ spec:
     metadata:
       labels:
         app: {{ .Values.cartDatabase.inClusterRedis.name }}
+      annotations:
+        failure-puzzle.io/chaos-target: "true"
+        failure-puzzle.io/service-type: "database"
     spec:
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.cartDatabase.inClusterRedis.name }}
@@ -258,6 +283,12 @@ spec:
         {{- end }}
         ports:
         - containerPort: 6379
+        command:
+        - redis-server
+        - --loglevel
+        - verbose
+        - --logfile
+        - ""
         readinessProbe:
           periodSeconds: 5
           tcpSocket:
@@ -276,6 +307,30 @@ spec:
           requests:
             cpu: 70m
             memory: 200Mi
+      # Sidecar for enhanced Redis monitoring and logging
+      - name: redis-monitor
+        image: busybox:1.35
+        command:
+        - sh
+        - -c
+        - |
+          while true; do
+            echo "[$(date -Iseconds)] [INFO] Redis monitor: Checking Redis connectivity from redis-monitor sidecar"
+            if nc -z localhost 6379; then
+              echo "[$(date -Iseconds)] [INFO] Redis connectivity: OK"
+            else
+              echo "[$(date -Iseconds)] [ERROR] Redis connectivity: FAILED - Connection refused to localhost:6379"
+            fi
+            echo "[$(date -Iseconds)] [INFO] Redis monitor: Memory usage check completed"
+            sleep 10
+          done
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 20m
+            memory: 32Mi
       volumes:
       - name: redis-data
         emptyDir: {}

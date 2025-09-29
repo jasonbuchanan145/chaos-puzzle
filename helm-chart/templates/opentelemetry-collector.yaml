@@ -58,59 +58,34 @@ spec:
           type: {{ .Values.seccompProfile.type }}
         {{- end }}
       {{- end }}
-      {{- if eq .Values.opentelemetryCollector.projectId "PROJECT_ID" }}
-      initContainers:
-      # Init container retrieves the current cloud project id from the metadata server
-      # and inserts it into the collector config template
-      # https://cloud.google.com/compute/docs/storing-retrieving-metadata
-      - name: otel-gateway-init
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-          privileged: false
-          readOnlyRootFilesystem: true
-        image: busybox:latest@sha256:d82f458899c9696cb26a7c02d5568f81c8c8223f8661bb2a7988b269c8b9051e
-        command:
-        - '/bin/sh'
-        - '-c'
-        - |
-           sed "s/PROJECT_ID/$(curl -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/project/project-id)/" /template/collector-gateway-config-template.yaml >> /conf/collector-gateway-config.yaml
-        volumeMounts:
-        - name: collector-gateway-config-template
-          mountPath: /template
-        - name: collector-gateway-config
-          mountPath: /conf
-      {{- end }}
+
+      # NOTE: We intentionally remove the initContainer; we're not templating PROJECT_ID anymore.
+
       containers:
-      # This gateway container will receive traces and metrics from each microservice
-      # and forward it to GCP
-      - name: otel-gateway
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-          privileged: false
-          readOnlyRootFilesystem: true
-        args:
-        - --config=/conf/collector-gateway-config.yaml
-        image: otel/opentelemetry-collector-contrib:0.135.0@sha256:89107a3a8f4636a396927edf7025bb9614b8da2d92f4cc3f43109e8d115736e2
-        volumeMounts:
-        - name: collector-gateway-config
-          mountPath: /conf
+        - name: otel-gateway
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ "ALL" ]
+            privileged: false
+            readOnlyRootFilesystem: true
+          image: {{ printf "%s:%s" (default "otel/opentelemetry-collector-contrib" .Values.opentelemetryCollector.image.repository) (default "0.135.0" .Values.opentelemetryCollector.image.tag) | quote }}
+          args:
+            - "--config=/conf/collector-gateway-config.yaml"
+          volumeMounts:
+            - name: collector-gateway-config-template
+              mountPath: /conf
+              readOnly: true
+
       volumes:
-      # Simple ConfigMap volume with template file
-      - name: collector-gateway-config-template
-        configMap:
-          items:
-          - key: collector-gateway-config-template.yaml
-            path: collector-gateway-config-template.yaml
-          name: collector-gateway-config-template
-      # Create a volume to store the expanded template (with correct cloud project ID)
-      - name: collector-gateway-config
-        emptyDir: {}
+        # Map the CM key -> the filename the collector expects (Pattern 2)
+        - name: collector-gateway-config-template
+          configMap:
+            name: collector-gateway-config-template
+            items:
+              - key: collector-gateway-config-template.yaml
+                path: collector-gateway-config.yaml
+
 ---
 apiVersion: v1
 kind: Service
@@ -132,28 +107,38 @@ kind: ConfigMap
 metadata:
   name: collector-gateway-config-template
   namespace: {{ .Release.Namespace }}
-# Open Telemetry Collector config
-# https://opentelemetry.io/docs/collector/configuration/
 data:
   collector-gateway-config-template.yaml: |
     receivers:
       otlp:
-        protocols: 
+        protocols:
           grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
     processors:
+      batch: {}
+
     exporters:
-      googlecloud:
-        project: {{ .Values.opentelemetryCollector.projectId | quote }}
+      # Send traces to Data Prepper (which writes to OpenSearch)
+      otlp:
+        endpoint: failure-puzzle-dataprepper:21890
+        # gRPC uses plaintext inside the cluster
+        tls:
+          insecure: true
+
+      debug:
+        verbosity: normal
+
     service:
       pipelines:
         traces:
-          receivers: [otlp] # Receive otlp-formatted data from other collector instances
-          processors: []
-          exporters: [googlecloud] # Export traces directly to Google Cloud
-        metrics:
           receivers: [otlp]
-          processors: []
-          exporters: [googlecloud] # Export metrics to Google Cloud
+          processors: [batch]
+          exporters: [otlp, debug]
+
+
 {{- if .Values.networkPolicies.create }}
 ---
 apiVersion: networking.k8s.io/v1

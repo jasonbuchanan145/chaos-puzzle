@@ -1,0 +1,152 @@
+{{- if .Values.observability.logstash.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: {{ .Release.Namespace }}
+data:
+  logstash.conf: |
+    input {
+      # Your apps post JSON logs/spans here
+      http {
+        port => 5044
+        codec => json
+        # NOTE: If you want to avoid the ECS warning about "target", you can do:
+        # codec => json { target => "event" }
+        # and then update references below from [resourceSpans] -> [event][resourceSpans]
+      }
+    }
+
+    filter {
+      # OpenTelemetry spans (resourceSpans present)
+      if [resourceSpans] {
+        mutate { add_tag => ["otel_trace"] }
+        ruby {
+          code => '
+            resource_spans = event.get("resourceSpans")
+            if resource_spans && resource_spans.is_a?(Array)
+              resource_spans.each do |rs|
+                if rs["scopeSpans"]
+                  rs["scopeSpans"].each do |ss|
+                    if ss["spans"]
+                      ss["spans"].each do |span|
+                        new_event = LogStash::Event.new(span)
+                        new_event.set("[@timestamp]", Time.at(span["startTimeUnixNano"].to_i / 1_000_000_000.0))
+                        new_event.set("service_name", rs.dig("resource", "attributes", "service.name"))
+                        new_event.set("trace_id", span["traceId"])
+                        new_event.set("span_id", span["spanId"])
+                        new_event.set("parent_span_id", span["parentSpanId"])
+                        new_event.set("operation_name", span["name"])
+                        new_event.set("duration_ms", (span["endTimeUnixNano"].to_i - span["startTimeUnixNano"].to_i) / 1_000_000.0)
+                        new_event.set("event_type", "span")
+                        new_event.tag("otel_span")
+                        yield new_event
+                      end
+                    end
+                  end
+                end
+              end
+            end
+            event.cancel
+          '
+        }
+      }
+
+      # Regular app logs (no resourceSpans)
+      if ![otel_trace] {
+        grok {
+          match => { "message" => "\[%{DATA:correlation_id}\]" }
+          tag_on_failure => ["no_correlation_id"]
+        }
+
+        if [message] =~ /^\{.*\}$/ {
+          json { source => "message" }
+        }
+
+        if [kubernetes] {
+          mutate { add_field => { "service_name" => "%{[kubernetes][labels][app]}" } }
+        }
+
+        mutate { add_field => { "event_type" => "log" } }
+      }
+
+      # Common timestamp normalization (best-effort)
+      date {
+        match => [ "timestamp", "ISO8601", "yyyy-MM-dd HH:mm:ss.SSS" ]
+        target => "@timestamp"
+      }
+    }
+
+    output {
+      # Works with OpenSearch using the elasticsearch output
+      elasticsearch {
+        hosts  => ["http://opensearch:9200"]
+        index  => "failure-puzzle-%{+YYYY.MM.dd}"
+        manage_template => false
+      }
+
+      # If you switch to the OpenSearch image with the plugin preinstalled,
+      # you can use this block instead:
+      # opensearch {
+      #   hosts  => ["http://opensearch:9200"]
+      #   index  => "failure-puzzle-%{+YYYY.MM.dd}"
+      # }
+
+      stdout { codec => rubydebug }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: logstash
+spec:
+  replicas: {{ .Values.observability.logstash.replicas }}
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:8.11.0
+          # Optional: Relax probes if you add them; Logstash can take ~20–40s to boot.
+          ports:
+            - containerPort: 5044
+          env:
+            - name: LS_JAVA_OPTS
+              value: "-Xms256m -Xmx256m"
+            # Makes the default entrypoint look in /usr/share/logstash/pipeline
+            - name: LOGSTASH_HOME
+              value: "/usr/share/logstash"
+          resources:
+            {{- toYaml .Values.observability.logstash.resources | nindent 12 }}
+          volumeMounts:
+            - name: logstash-config
+              mountPath: /usr/share/logstash/pipeline
+      volumes:
+        - name: logstash-config
+          configMap:
+            name: logstash-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: logstash
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5044
+      targetPort: 5044
+      name: http
+  selector:
+    app: logstash
+{{- end }}

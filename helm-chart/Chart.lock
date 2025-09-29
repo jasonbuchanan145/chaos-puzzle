@@ -1,0 +1,12 @@
+dependencies:
+- name: data-prepper
+  repository: https://opensearch-project.github.io/helm-charts
+  version: 0.3.1
+- name: opensearch
+  repository: https://opensearch-project.github.io/helm-charts
+  version: 3.2.1
+- name: opensearch-dashboards
+  repository: https://opensearch-project.github.io/helm-charts
+  version: 3.2.1
+digest: sha256:22353faea9b22052e8d3aed8c8c30eea29e5de46e685b8b09abb78ece1ba6914
+generated: "2025-09-28T21:52:35.2537167-05:00"
