@@ -1,0 +1,135 @@
+{{- if .Values.opentelemetryCollector.create }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.opentelemetryCollector.name }}
+  namespace: {{ .Release.Namespace }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      memory_limiter:
+        limit_mib: 256
+        spike_limit_mib: 64
+      batch:
+      resource:
+        attributes:
+          - action: upsert
+            key: service.namespace
+            value: failure-puzzle
+
+    exporters:
+      # Traces → OpenSearch (2.11.0, security disabled)
+      opensearch:
+        endpoints: ["http://opensearch:9200"]
+        tls:
+          insecure: true
+        traces_index: "otel-v1-apm-span"
+        service_map:
+          enabled: true
+          index: "otel-v1-apm-service-map"
+        flush:
+          bytes: 5242880
+        retry:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+      # Helpful while bringing this up
+      logging:
+        loglevel: debug
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, resource, batch]
+          exporters: [opensearch, logging]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.opentelemetryCollector.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.opentelemetryCollector.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.opentelemetryCollector.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.opentelemetryCollector.name }}
+    spec:
+      containers:
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:0.91.0
+        args:
+        - --config=/etc/otelcol-contrib/config.yaml
+        ports:
+        - containerPort: 4317   # OTLP gRPC
+        - containerPort: 4318   # OTLP HTTP
+        - containerPort: 13133  # Health check
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol-contrib
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: {{ .Values.opentelemetryCollector.name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.opentelemetryCollector.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.opentelemetryCollector.name }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: 4317
+    targetPort: 4317
+    name: otlp-grpc
+  - port: 4318
+    targetPort: 4318
+    name: otlp-http
+  - port: 13133
+    targetPort: 13133
+    name: health
+  selector:
+    app: {{ .Values.opentelemetryCollector.name }}
+{{- end }}

@@ -1,0 +1,148 @@
+# Template to set replicas to 0 for disabled services in failure puzzle mode
+{{- if .Values.adService.create }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.adService.name }}-disabled
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.adService.name }}
+    failure-puzzle.io/status: disabled
+spec:
+  replicas: {{ .Values.adService.replicas | default 0 }}
+  selector:
+    matchLabels:
+      app: {{ .Values.adService.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.adService.name }}
+      annotations:
+        failure-puzzle.io/disabled: "Service disabled for failure puzzle"
+    spec:
+      containers:
+      - name: placeholder
+        image: busybox:1.35
+        command:
+        - sleep
+        - infinity
+        resources:
+          requests:
+            cpu: 1m
+            memory: 1Mi
+          limits:
+            cpu: 1m
+            memory: 1Mi
+{{- end }}
+
+{{- if .Values.currencyService.create }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.currencyService.name }}-disabled
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.currencyService.name }}
+    failure-puzzle.io/status: disabled
+spec:
+  replicas: {{ .Values.currencyService.replicas | default 0 }}
+  selector:
+    matchLabels:
+      app: {{ .Values.currencyService.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.currencyService.name }}
+      annotations:
+        failure-puzzle.io/disabled: "Service disabled for failure puzzle"
+    spec:
+      containers:
+      - name: placeholder
+        image: busybox:1.35
+        command:
+        - sleep
+        - infinity
+        resources:
+          requests:
+            cpu: 1m
+            memory: 1Mi
+          limits:
+            cpu: 1m
+            memory: 1Mi
+{{- end }}
+
+{{- if .Values.emailService.create }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.emailService.name }}-disabled
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.emailService.name }}
+    failure-puzzle.io/status: disabled
+spec:
+  replicas: {{ .Values.emailService.replicas | default 0 }}
+  selector:
+    matchLabels:
+      app: {{ .Values.emailService.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.emailService.name }}
+      annotations:
+        failure-puzzle.io/disabled: "Service disabled for failure puzzle"
+    spec:
+      containers:
+      - name: placeholder
+        image: busybox:1.35
+        command:
+        - sleep
+        - infinity
+        resources:
+          requests:
+            cpu: 1m
+            memory: 1Mi
+          limits:
+            cpu: 1m
+            memory: 1Mi
+{{- end }}
+
+{{- if .Values.recommendationService.create }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.recommendationService.name }}-disabled
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.recommendationService.name }}
+    failure-puzzle.io/status: disabled
+spec:
+  replicas: {{ .Values.recommendationService.replicas | default 0 }}
+  selector:
+    matchLabels:
+      app: {{ .Values.recommendationService.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.recommendationService.name }}
+      annotations:
+        failure-puzzle.io/disabled: "Service disabled for failure puzzle"
+    spec:
+      containers:
+      - name: placeholder
+        image: busybox:1.35
+        command:
+        - sleep
+        - infinity
+        resources:
+          requests:
+            cpu: 1m
+            memory: 1Mi
+          limits:
+            cpu: 1m
+            memory: 1Mi
+{{- end }}

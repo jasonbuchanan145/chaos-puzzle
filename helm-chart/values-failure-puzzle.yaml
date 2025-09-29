@@ -1,0 +1,251 @@
+# Failure Puzzle Configuration
+# Based on Online Boutique microservices demo
+# Configured for troubleshooting exercise
+
+# Default values for failure-puzzle version
+images:
+  repository: us-central1-docker.pkg.dev/google-samples/microservices-demo
+  tag: ""
+
+serviceAccounts:
+  create: true
+  annotations: {}
+  annotationsOnlyForCartservice: false
+
+networkPolicies:
+  create: false
+
+# Enable OpenTelemetry for observability
+opentelemetryCollector:
+  create: true
+  name: otel-collector
+  projectId: "PROJECT_ID"
+
+# Observability Stack Configuration
+observability:
+  enabled: true
+  opensearch:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+  logstash:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 200m
+        memory: 1Gi
+  dashboards:
+    enabled: true
+
+# Chaos Engineering Configuration
+chaos:
+  enabled: true
+  chaosMesh:
+    enabled: false
+    # Chaos Mesh configuration (deployed as dependency)
+    namespace: chaos-mesh
+    createNamespace: true
+  # Failure timeline: 5min baseline, then failures for 5min
+  schedule:
+    baselineDuration: "5m"
+    failureDuration: "5m"
+  cartServiceDelay:
+    enabled: true
+    delay: "50ms"
+  redisFailure:
+    enabled: true
+    failureRate: 0.5
+
+# Chaos Mesh dependency configuration
+chaos-mesh:
+  # Install Chaos Mesh in separate namespace
+  chaosDaemon:
+    runtime: containerd
+    socketPath: /run/containerd/containerd.sock
+  # Resource limits for Chaos Mesh components
+  controllerManager:
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  dashboard:
+    create: false  # We don't need the web dashboard for this exercise
+
+# ACTIVE SERVICES (replicas > 0)
+frontend:
+  create: true
+  name: frontend
+  replicas: 1
+  externalService: true
+  cymbalBranding: false
+  platform: local
+  singleSharedSession: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  otel:
+    enabled: true
+
+loadGenerator:
+  create: true
+  name: loadgenerator
+  replicas: 1
+  checkFrontendInitContainer: true
+  resources:
+    requests:
+      cpu: 300m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  otel:
+    enabled: true
+
+checkoutService:
+  create: true
+  name: checkoutservice
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  otel:
+    enabled: true
+
+productCatalogService:
+  create: true
+  name: productcatalogservice
+  replicas: 1
+  extraLatency: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  otel:
+    enabled: true
+
+paymentService:
+  create: true
+  name: paymentservice
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  otel:
+    enabled: true
+
+shippingService:
+  create: true
+  name: shippingservice
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  otel:
+    enabled: true
+
+cartService:
+  create: true
+  name: cartservice
+  replicas: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+  otel:
+    enabled: true
+
+# DISABLED SERVICES (replicas set to 0)
+adService:
+  create: true
+  name: adservice
+  replicas: 0
+  resources:
+    requests:
+      cpu: 200m
+      memory: 180Mi
+    limits:
+      cpu: 300m
+      memory: 300Mi
+
+currencyService:
+  create: true
+  name: currencyservice
+  replicas: 0
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+emailService:
+  create: true
+  name: emailservice
+  replicas: 0
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+recommendationService:
+  create: true
+  name: recommendationservice
+  replicas: 0
+  resources:
+    requests:
+      cpu: 100m
+      memory: 220Mi
+    limits:
+      cpu: 200m
+      memory: 450Mi
+
+# Cart Database (Redis)
+cartDatabase:
+  type: redis
+  connectionString: "redis-cart:6379"
+  inClusterRedis:
+    create: true
+    name: redis-cart
+    replicas: 1
+    publicRepository: true
+  externalRedisTlsOrigination:
+    enable: false
